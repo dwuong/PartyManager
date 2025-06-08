@@ -3,26 +3,25 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices; // Required for DllImport
 using System.Windows.Forms; // Required for Keys enum
-using ExileCore.Shared.Helpers; // For useful helpers like Delay or other utilities if needed.
+using ExileCore.Shared.Helpers; // For Delay helper
 using ExileCore.PoEMemory.Elements; // For Element class which represents UI elements.
 using ExileCore.Core; // For Core.TheCore and Core.CurrentGame.
 
-// It's assumed that ExileCore's Log static class is available for logging.
-// If not, you might need 'using ExileCore.PoEMemory.MemoryObjects;' etc., depending on setup.
+// Ensure your PartyManagerSettings is in the same namespace or accessible via a using directive.
+using YourPluginNamespace; // Replace with your actual plugin's namespace
 
 public class PartyManager
 {
-    // The name of the player that the system should automatically try to invite.
-    // This would typically be loaded from plugin settings or configuration in ExileCore.
-    private readonly string _playerToAutoInvite;
+    // Reference to the plugin's settings, allowing access to configured values.
+    private readonly PartyManagerSettings _settings;
 
     /// <summary>
-    /// Initializes a new instance of the PartyManager class.
+    /// Initializes a new instance of the PartyManager class with provided settings.
     /// </summary>
-    /// <param name="playerToAutoInvite">The name of the player to automatically invite if not in the party.</param>
-    public PartyManager(string playerToAutoInvite)
+    /// <param name="settings">The PartyManagerSettings object containing configuration for auto-invites.</param>
+    public PartyManager(PartyManagerSettings settings)
     {
-        _playerToAutoInvite = playerToAutoInvite;
+        _settings = settings;
     }
 
     /// <summary>
@@ -42,8 +41,7 @@ public class PartyManager
             // You might need to adjust this path depending on the exact UI structure in PoE.
             var partyRootElement = Core.CurrentGame.IngameUi.PartyElement;
 
-            // The original structure provided implies specific nested children.
-            // "ElementAtOrDefault(0)?.Children?.ElementAtOrDefault(0)?.Children"
+            // The original structure implies specific nested children.
             // This translates to navigating through multiple levels of children.
             // Let's assume this path correctly leads to a list of individual player elements.
             var partyElementListContainer = partyRootElement?.GetChildAtIndex(0)?.GetChildAtIndex(0);
@@ -62,7 +60,6 @@ public class PartyManager
             {
                 // Assuming the player's name is the text of the first child element
                 // of each party member's UI entry.
-                // In ExileCore, this could be partyElement.GetChildAtIndex(0).Text or similar.
                 var playerNameElement = partyElement?.GetChildAtIndex(0); // This is likely the element holding the name
                 var playerName = playerNameElement?.Text;
 
@@ -87,8 +84,11 @@ public class PartyManager
     /// </summary>
     public void CheckAndInvitePlayerIfNeeded()
     {
+        // Get the player name from the settings.
+        string playerToAutoInvite = _settings.PlayerToAutoInviteName.Value;
+
         // Ensure a player name has been configured for auto-inviting.
-        if (string.IsNullOrEmpty(_playerToAutoInvite))
+        if (string.IsNullOrEmpty(playerToAutoInvite))
         {
             LogWarning("No player name configured for auto-invite. Skipping invitation check.");
             return;
@@ -102,7 +102,7 @@ public class PartyManager
         foreach (string memberName in currentPartyMembers)
         {
             // Perform a case-insensitive comparison to ensure flexibility with player names.
-            if (string.Equals(_playerToAutoInvite, memberName, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(playerToAutoInvite, memberName, StringComparison.OrdinalIgnoreCase))
             {
                 foundInParty = true; // Player found in party.
                 break; // No need to continue checking, player is already there.
@@ -113,12 +113,12 @@ public class PartyManager
         // or attempt to send an invite.
         if (foundInParty)
         {
-            LogInfo($"'{_playerToAutoInvite}' is already in the party. No invite sent.");
+            LogInfo($"'{playerToAutoInvite}' is already in the party. No invite sent.");
         }
         else
         {
-            LogInfo($"'{_playerToAutoInvite}' not found in the party. Attempting to send an invite...");
-            SendPartyInvite(_playerToAutoInvite);
+            LogInfo($"'{playerToAutoInvite}' not found in the party. Attempting to send an invite...");
+            SendPartyInvite(playerToAutoInvite);
         }
     }
 
@@ -139,9 +139,28 @@ public class PartyManager
         {
             // Convert char to Keys enum. This might need careful handling for special characters.
             // For simple alphanumeric, it often works by casting.
-            // For more robust solutions, consider a mapping.
-            Keys key = (Keys)Enum.Parse(typeof(Keys), c.ToString(), true);
-            Keyboard.KeyPress(key);
+            // For more robust solutions, consider a mapping if complex characters are expected.
+            // For common letters/numbers, direct cast often works.
+            Keys key;
+            if (Enum.TryParse(c.ToString(), true, out key)) // Attempt to parse character directly
+            {
+                Keyboard.KeyPress(key);
+            }
+            else if (char.IsDigit(c)) // Handle digits specifically if direct parse fails
+            {
+                key = (Keys)Enum.Parse(typeof(Keys), "_" + c.ToString(), true); // e.g., D1 for '1'
+                Keyboard.KeyPress(key);
+            }
+            else if (c == '/') // Handle '/' specifically for commands
+            {
+                Keyboard.KeyPress(Keys.Oem2); // Keys.Oem2 is typically '/'
+            }
+            // Add more specific mappings here if needed for other symbols or international characters.
+            else
+            {
+                LogError($"Failed to map character '{c}' to a keyboard key for typing.");
+            }
+
             Delay.Frame(); // Small delay between characters for reliability
         }
 
